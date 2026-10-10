@@ -1,0 +1,43 @@
+{{B}}Helium Home Sync: server management{{N}}
+{{D}}Syncs browser history between your Helium installs. This server only stores and relays it;
+everything else happens in the browser extension.{{N}}
+
+Usage: {{CMD}} <command> [arguments]
+
+{{B}}Server{{N}}
+  status                  Is it running? Health, numbers, and the address devices should use
+  start | stop | restart  Start, stop or restart the server
+  logs                    Follow the server log (Ctrl+C to leave)
+@docker   update                  Rebuild and restart after server.py or admin.py changed
+  set-port <port>         Move the server to another port (devices need the new Server URL)
+
+{{B}}Devices and data{{N}}
+  devices                 List the devices that sync, with visit counts and last sync
+  remove-device <name|id> Remove a device (e.g. an old laptop): its history disappears from the
+                          server and all other devices. The device keeps its own history and
+                          offers "Add back to sync" in its popup to upload it again.
+  prune <days>            Delete visits older than <days> from the server, e.g. prune 365.
+                          Devices keep their copies; new devices just won't receive them.
+  stats                   Totals and database size
+
+{{B}}Backup{{N}}
+  backup [file]           Save a consistent copy of all data (default: {{BACKUPS}}/<date>.db)
+  restore <file>          Replace ALL server data with a backup (makes a safety backup first)
+  auto-backup             Backup and keep only the newest BACKUP_KEEP (default 14) automatic ones
+
+{{B}}Access{{N}}
+  connect                 How to set up a new device: addresses, token, extension folder
+  token                   Print the access token
+  rotate-token            Make a new token (old one stops working; update it on every device)
+
+{{B}}Maintenance{{N}}
+  vacuum                  Shrink the database file after big deletions
+  check                   Verify the database is not corrupted
+  wipe                    Delete ALL server data and start empty (asks first)
+
+@lxc {{D}}Files: {{APP}} (code), {{ENV_FILE}} (token, port), {{DATA}} (database, backups).
+@lxc Update the code from the Proxmox host: ./proxmox-lxc.sh update <ctid>
+@lxc Rename the container from the Proxmox host: ./proxmox-lxc.sh rename <ctid> <name>{{N}}
+@docker {{D}}Files: docker-compose.yml (container), .env (token), backups/ (your backups).
+@docker Data lives in the Docker volume "helium-home-sync_helium-home-sync-data".
+@docker Docs: {{PROJECT_DIR}}/README.md{{N}}

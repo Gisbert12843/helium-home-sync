@@ -1,0 +1,20 @@
+[Unit]
+Description=Helium Home Sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=helium-home-sync
+Group=helium-home-sync
+Environment=HOST=0.0.0.0 PORT=8787 DB_PATH=/var/lib/helium-home-sync/helium-home-sync.db
+EnvironmentFile=/etc/helium-home-sync/env
+StateDirectory=helium-home-sync
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/helium-home-sync
+ExecStart=/usr/bin/python3 -u /opt/helium-home-sync/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

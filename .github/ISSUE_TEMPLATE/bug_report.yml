@@ -1,0 +1,69 @@
+name: Bug report
+description: Something doesn't sync, shows wrong data, or breaks.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! For security problems, please use [private reporting](https://github.com/Gisbert12843/helium-home-sync/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. On device A, visit …
+        2. On device B, click Sync now
+        3. …
+  - type: input
+    id: error
+    attributes:
+      label: Error shown in the popup
+      description: The red text in the popup or the tooltip on the toolbar icon, if there is one.
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      description: Shown on the extension's card in helium://extensions.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: Server version
+      description: Shown after "Test connection" in the extension settings, or by `./manage.sh status`.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Server setup
+      options:
+        - Docker (manage.sh)
+        - Proxmox LXC (proxmox-lxc.sh)
+        - Plain Python (server.py)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: helium-version
+    attributes:
+      label: Helium version and OS
+      description: From helium://version.
+      placeholder: "Helium 0.5.x on Windows 11 / macOS 15 / Arch Linux"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs
+      description: Output of `./manage.sh logs` (or `journalctl -u helium-home-sync` on Proxmox) around the time of the problem. Remove anything private.
+      render: text

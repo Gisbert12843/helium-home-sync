@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest an improvement or something new to sync.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search the existing requests first. If yours is already there, add a 👍 to it; that's how features get prioritized.
+        Password sync is deliberately [out of scope](https://github.com/Gisbert12843/helium-home-sync#scope).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what you're trying to do and what's in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to implement it?
+      options:
+        - "No"
+        - Yes, with some guidance
+        - Yes, I'll open a pull request

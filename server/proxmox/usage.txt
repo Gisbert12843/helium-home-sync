@@ -1,0 +1,67 @@
+{{BOLD}}Helium Home Sync: Proxmox VE LXC installer{{CL}}
+Installs the server into a new Debian LXC container (no Docker). Run it on the Proxmox host as
+root, from a copy of the whole server/ folder:
+  scp -r server root@proxmox:/root/helium-home-sync
+  ssh -t root@proxmox /root/helium-home-sync/proxmox-lxc.sh
+
+{{BOLD}}Commands{{CL}}
+  ./proxmox-lxc.sh                       Create a container; a menu offers default or advanced settings
+  ./proxmox-lxc.sh default               Create a container with the default settings, no questions
+  ./proxmox-lxc.sh advanced              Create a container, asking for every setting below
+  ./proxmox-lxc.sh update [ctid]         Push the current server code into a container and restart it
+  ./proxmox-lxc.sh tailscale [ctid]      Add Tailscale to an existing container (passes /dev/net/tun in)
+  ./proxmox-lxc.sh rename [ctid] [name]  Change the container's hostname (and its Tailscale name)
+  ./proxmox-lxc.sh port [ctid] [port]    Move the server to another port (devices need the new URL)
+  ./proxmox-lxc.sh help                  This text
+  Without a ctid, these commands let you pick the container from a list; a missing name or port is asked.
+
+{{BOLD}}Settings{{CL}} {{DIM}}(environment variables, all optional; the advanced settings start from them){{CL}}
+  {{BOLD}}Container{{CL}}
+    CTID=<id>                   100-999999999 (default: next free id, now {{NEXTID}})
+    CT_HOSTNAME=<name>          letters, digits and '-' (default: helium-home-sync)
+    CT_TYPE=<type>              unprivileged | privileged (default: unprivileged)
+    TEMPLATE=<template>         default: the newest Debian; one of:
+{{TEMPLATES}}
+    TEMPLATE_STORAGE=<storage>  where templates are kept; one of: {{TEMPLATE_STORAGES}}
+    STORAGE=<storage>           root disk; one of: {{ROOTDIR_STORAGES}} (default: local-lvm, else the first)
+    DISK=<GB>                   default: 2
+    CORES=<n>                   default: 1
+    MEMORY=<MB>                 default: 256, or 512 with Tailscale
+    SWAP=<MB>                   default: 256
+    TAGS=<a;b>                  separated by ';' (default: helium)
+    ONBOOT=<yes|no>             start with the host (default: yes)
+    PROTECTION=<yes|no>         block accidental deletion (default: no)
+
+  {{BOLD}}Network{{CL}}
+    BRIDGE=<bridge>             one of: {{BRIDGES}} (default: vmbr0)
+    IP=<dhcp|address/prefix>    dhcp, or e.g. 192.168.2.50/24 (default: dhcp)
+    GW=<address>                gateway, only with a static IP, e.g. 192.168.2.1
+    VLAN=<1-4094>               default: none
+    NAMESERVER=<ip ip ...>      DNS servers (default: same as the host)
+    SEARCHDOMAIN=<domain>       DNS search domain (default: same as the host)
+    PORT=<1-65535>              server port (default: 8787)
+
+  {{BOLD}}Login{{CL}}
+    SYNC_TOKEN=<token>          what each browser enters to connect; at least 16 of A-Z a-z 0-9 _ . ~ + / = -
+                                (default: a new random token)
+    PASSWORD=<password>         root password for the container (default: none, use 'pct enter')
+    SSH_KEYS=<file>             public keys allowed to SSH in as root, e.g. /root/.ssh/authorized_keys
+                                (default: none)
+
+  {{BOLD}}Maintenance{{CL}}
+    AUTO_BACKUP=<yes|no>        daily database backup (default: yes)
+    BACKUP_TIME=<HH:MM>         default: 03:30
+    BACKUP_KEEP=<n>             keep the newest n daily backups (default: 14)
+    AUTO_UPDATES=<yes|no>       install Debian security updates automatically (default: yes)
+    QUIET=<yes|no>              yes: don't log every sync request (default: no)
+
+  {{BOLD}}Tailscale{{CL}}
+    TAILSCALE=<yes|no>          install Tailscale in the container (default: no; needs /dev/net/tun on the host)
+    TS_AUTHKEY=<tskey-...>      join the tailnet without a browser login (default: show a login link)
+    TS_HTTPS=<yes|no>           also serve https://<name>.<tailnet>.ts.net via 'tailscale serve' (default: no)
+
+  VERBOSE=<yes|no>              show the output of every command (default: no)
+
+Example: CTID=150 IP=192.168.2.50/24 GW=192.168.2.1 TAILSCALE=yes ./proxmox-lxc.sh default
+
+Inside the container, manage.sh is installed as 'helium-home-sync' (status, devices, backup, ...).

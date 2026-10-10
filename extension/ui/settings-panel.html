@@ -1,0 +1,74 @@
+<header class="hs-head">
+  <img src="../icons/32.png" alt="" width="22" height="22">
+  <div class="hs-title">
+    <div class="hs-name"></div>
+    <div class="hs-status"><span id="status-dot" class="dot"></span><span id="status-text">…</span>
+      <span id="status-http" class="warn-icon hidden" tabindex="0" data-tip="Unencrypted connection (http). History and token travel in plain text. Fine on localhost or inside Tailscale (already encrypted); use https:// anywhere else."><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.9 1.6a1 1 0 0 0-1.8 0L.6 13.5A1 1 0 0 0 1.5 15h13a1 1 0 0 0 .9-1.5zM8 5c.5 0 .8.4.8.9l-.3 4a.5.5 0 0 1-1 0l-.3-4c0-.5.3-.9.8-.9m0 6.5a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8"/></svg></span></div>
+  </div>
+  <label class="switch" title="Pause sync: nothing is uploaded or downloaded; local visits wait in the outbox.">
+    <input type="checkbox" id="paused"><span>Pause</span>
+  </label>
+</header>
+
+<div id="error-box" class="error-box hidden"></div>
+
+<section class="hs-stats">
+  <div><b id="stat-local">–</b><span>this device</span></div>
+  <div><b id="stat-remote">–</b><span>other devices</span></div>
+  <div><b id="stat-outbox">–</b><span>to upload</span></div>
+</section>
+
+<ul id="devices" class="hs-devices"></ul>
+
+<div class="hs-actions">
+  <button id="btn-sync" class="primary">Sync now</button>
+  <button id="btn-history">Open history</button>
+</div>
+
+<section id="backfill" class="hs-backfill hidden">
+  <div id="backfill-text"></div>
+  <button id="btn-backfill">Upload existing history</button>
+</section>
+
+<details id="settings" class="hs-settings">
+  <summary>Settings</summary>
+  <form id="settings-form" autocomplete="off">
+    <label for="server-url">Server URL
+      <span id="http-warning" class="warn-icon hidden" tabindex="0" data-tip="Unencrypted connection (http). History and token travel in plain text. Fine on localhost or inside Tailscale (already encrypted); use https:// anywhere else."><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8.9 1.6a1 1 0 0 0-1.8 0L.6 13.5A1 1 0 0 0 1.5 15h13a1 1 0 0 0 .9-1.5zM8 5c.5 0 .8.4.8.9l-.3 4a.5.5 0 0 1-1 0l-.3-4c0-.5.3-.9.8-.9m0 6.5a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8"/></svg></span>
+    </label>
+    <input id="server-url" type="url" placeholder="https://sync.example.com or http://myserver:8787" spellcheck="false">
+
+    <label for="token">Token</label>
+    <div class="row">
+      <input id="token" type="password" placeholder="SYNC_TOKEN from the server" spellcheck="false">
+      <button type="button" id="toggle-token" title="Show token">Show</button>
+    </div>
+
+    <label for="device-name">Device name</label>
+    <input id="device-name" type="text" maxlength="60" placeholder="e.g. Laptop">
+
+    <label for="pull-interval">Download from other devices</label>
+    <select id="pull-interval">
+      <option value="0">On browser start only</option>
+      <option value="5">Every 5 minutes</option>
+      <option value="15">Every 15 minutes</option>
+      <option value="60">Every hour</option>
+    </select>
+
+    <label class="check"><input type="checkbox" id="propagate-clear-all">
+      <span>Send “Clear all history” to other devices</span></label>
+    <label class="check"><input type="checkbox" id="accept-delete-all">
+      <span>Accept “Clear all history” from other devices</span></label>
+
+    <div class="row buttons">
+      <button type="button" id="btn-test">Test connection</button>
+      <button type="submit" id="btn-save" class="primary">Save</button>
+    </div>
+    <div id="form-result" class="form-result" role="status"></div>
+  </form>
+</details>
+
+<footer class="hs-foot">
+  <span id="device-label" class="muted"></span>
+  <a href="#" id="open-options">All settings</a>
+</footer>

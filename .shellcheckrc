@@ -1,0 +1,4 @@
+# Style used throughout the scripts:
+# SC1007: "A= B=" deliberately assigns empty strings.
+# SC2015: "check && check || die" is the intended pattern.
+disable=SC1007,SC2015

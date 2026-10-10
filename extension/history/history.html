@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History</title>
+<link rel="icon" href="../icons/32.png">
+<link rel="stylesheet" href="../ui/common.css">
+<link rel="stylesheet" href="history.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <h1><img src="../icons/32.png" alt="" width="20" height="20">History</h1>
+    <input id="search" type="search" placeholder="Search history" autofocus spellcheck="false" aria-label="Search history">
+    <select id="device-filter" aria-label="Device"><option value="">All devices</option></select>
+    <div class="top-links">
+      <span id="sync-state" class="muted"></span>
+      <a href="#" id="open-settings">Sync settings</a>
+      <a href="#" id="clear-data">Clear browsing data</a>
+    </div>
+  </div>
+</header>
+<main id="list" class="list" aria-live="polite"></main>
+<div id="sentinel" class="sentinel"></div>
+<div id="empty" class="empty hidden"></div>
+<script type="module" src="history.js"></script>
+</body>
+</html>

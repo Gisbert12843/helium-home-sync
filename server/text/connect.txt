@@ -1,0 +1,13 @@
+{{B}}Set up a new device{{N}}
+1. In Helium open helium://extensions, turn on "Developer mode", click "Load unpacked"
+   and pick this folder (copy it to the device first if it's another machine):
+@lxc      the extension/ folder of the project
+@docker      {{PROJECT_DIR}}/extension
+2. Pin the extension (puzzle icon), click it, and enter:
+   Server URL: one of
+{{ADDRESSES}}
+   Token:      {{TOKEN}}
+   Device name: anything, e.g. "Laptop"
+3. Click "Test connection", then "Save". Existing history: click "Upload existing history".
+{{D}}http:// is fine on this machine, your LAN or Tailscale. Over the internet, put the server behind
+HTTPS (see README, "Caddy").{{N}}

@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tag matches versions
+        run: python3 tools/check_version.py "$GITHUB_REF_NAME"
+
+      - name: Build extension zip
+        run: |
+          mkdir dist
+          cp -r extension dist/helium-home-sync-extension
+          cd dist && zip -r "../helium-home-sync-extension-$GITHUB_REF_NAME.zip" helium-home-sync-extension
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "helium-home-sync-extension-$GITHUB_REF_NAME.zip" \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md

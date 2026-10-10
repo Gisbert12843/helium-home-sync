@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helium Home Sync Settings</title>
+<link rel="stylesheet" href="../ui/common.css">
+<link rel="stylesheet" href="../ui/panel.css">
+<style>
+  body { background: var(--bg-raised); }
+  .page { max-width: 560px; margin: 32px auto; padding: 0 16px; }
+  .panel { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+  .help { color: var(--fg-muted); font-size: 12px; margin-top: 16px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+  <main id="panel" class="panel"></main>
+  <p class="help">
+    Visits are uploaded about 30 seconds after you open a page. Other devices' history is downloaded when
+    the browser starts, on “Sync now”, and on the interval you choose. Remote pages show up in the address
+    bar and on the history page (Ctrl+H) at their original time.
+  </p>
+</div>
+<script type="module" src="options.js"></script>
+</body>
+</html>

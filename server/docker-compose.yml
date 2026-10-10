@@ -1,0 +1,17 @@
+name: helium-home-sync
+
+services:
+  helium-home-sync:
+    build: .
+    image: helium-home-sync
+    restart: unless-stopped
+    environment:
+      SYNC_TOKEN: ${SYNC_TOKEN:?Set SYNC_TOKEN in server/.env}
+    ports:
+      - "${PORT:-8787}:8787"
+    volumes:
+      - helium-home-sync-data:/data
+      - /etc/localtime:/etc/localtime:ro
+
+volumes:
+  helium-home-sync-data:

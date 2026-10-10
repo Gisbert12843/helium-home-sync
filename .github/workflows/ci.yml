@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10" # oldest supported version
+
+      - name: Python syntax
+        run: python -m py_compile server/*.py tools/*.py
+
+      - name: Versions match
+        run: python tools/check_version.py
+
+      - name: Shell scripts
+        run: shellcheck server/*.sh server/proxmox/*.sh
+
+      - name: Extension JavaScript syntax
+        run: |
+          python -c 'import json; json.load(open("extension/manifest.json"))'
+          echo '{"type": "module"}' > package.json
+          find extension -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Server smoke test
+        run: python tools/smoke_test.py

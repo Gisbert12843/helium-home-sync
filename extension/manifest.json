@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Helium Home Sync",
+  "version": "1.0.0",
+  "description": "Syncs browsing history between your devices through your own server.",
+  "minimum_chrome_version": "120",
+  "permissions": ["history", "storage", "alarms", "unlimitedStorage", "favicon"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": { "service_worker": "background/index.js", "type": "module" },
+  "action": {
+    "default_title": "Helium Home Sync",
+    "default_popup": "popup/popup.html",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "chrome_url_overrides": { "history": "history/history.html" },
+  "options_ui": { "page": "options/options.html", "open_in_tab": true }
+}
