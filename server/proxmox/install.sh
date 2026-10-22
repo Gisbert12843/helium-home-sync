@@ -4,8 +4,7 @@
 #   install.sh packages [extra packages]   update Debian, install python3, curl and the extras
 #   install.sh auto-updates                install Debian security updates automatically
 #   install.sh server                      service user, config (from server.env), code, start
-#   install.sh code                        replace the code and restart (update)
-#   install.sh backup-timer <HH:MM>        daily database backup
+#   install.sh code                        replace the code, migrate old settings, restart (update)
 #   install.sh tailscale                   install and start tailscaled
 set -euo pipefail
 
@@ -22,7 +21,8 @@ install_code() {
   install -m 644 "$SRC"/text/* "$APP/text/"
   install -m 755 "$SRC/manage.sh" /usr/local/bin/helium-home-sync
   ln -sf /usr/local/bin/helium-home-sync /usr/bin/helium-home-sync
-  install -m 644 "$SRC/proxmox/$SVC.service" /etc/systemd/system/
+  install -m 644 "$SRC/proxmox/$SVC.service" "$SRC/proxmox/$SVC-backup.service" \
+    "$SRC/proxmox/$SVC-monitor.service" "$SRC/proxmox/$SVC-monitor.timer" /etc/systemd/system/
   systemctl daemon-reload
 }
 
@@ -51,16 +51,15 @@ case ${1:-} in
   code)
     [[ -f $CONF/env ]] || { echo "This container has no Helium Home Sync install ($CONF/env is missing)." >&2; exit 1; }
     install_code
+    # Before 1.1.0 the backup choice lived only in the timer. Record it, so 'helium-home-sync backups' knows it.
+    timer=/etc/systemd/system/$SVC-backup.timer
+    if ! grep -q '^AUTO_BACKUP=' "$CONF/env" && systemctl is-enabled -q "$SVC-backup.timer" 2>/dev/null; then
+      t=$(sed -n 's/^OnCalendar=\*-\*-\* \([0-9][0-9]:[0-9][0-9]\):00$/\1/p' "$timer")
+      [[ -z $(tail -c1 "$CONF/env") ]] || echo >>"$CONF/env"
+      printf 'AUTO_BACKUP=yes\nBACKUP_TIME=%s\n' "${t:-03:30}" >>"$CONF/env"
+    fi
     systemctl enable -q "$SVC"
     systemctl restart "$SVC"
-    ;;
-
-  backup-timer)
-    [[ ${2:-} =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "Usage: install.sh backup-timer <HH:MM>" >&2; exit 1; }
-    install -m 644 "$SRC/proxmox/$SVC-backup.service" /etc/systemd/system/
-    sed "s/{{BACKUP_TIME}}/$2/" "$SRC/proxmox/$SVC-backup.timer" >"/etc/systemd/system/$SVC-backup.timer"
-    systemctl daemon-reload
-    systemctl enable -q --now "$SVC-backup.timer"
     ;;
 
   tailscale)

@@ -12,7 +12,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 # Bump only for wire format changes that older clients can't handle (see PROTOCOL.md).
 PROTOCOL_VERSION = 1
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +22,17 @@ MAX_BODY = 5 * 1024 * 1024
 MAX_CHANGES = 500
 DEFAULT_LIMIT = 1000
 MAX_LIMIT = 5000
+# Percent of disk, memory and swap at which /api/stats and `manage.sh monitor` report a problem.
+# LIMIT_DISK, LIMIT_MEMORY and LIMIT_SWAP in the environment override them.
+DEFAULT_LIMITS = {"disk": 80, "memory": 90, "swap": 50}
+
+
+def _limit(name, default):
+    v = os.environ.get(f"LIMIT_{name.upper()}", "")
+    return int(v) if v.isdigit() and 1 <= int(v) <= 100 else default
+
+
+LIMITS = {k: _limit(k, default) for k, default in DEFAULT_LIMITS.items()}
 
 with open(os.path.join(HERE, "schema.sql")) as f:
     SCHEMA = f.read()
@@ -88,6 +99,24 @@ def validate_change(c):
     if url_key is not None and not URL_KEY_RE.match(url_key):
         raise ValidationError("urlKey must be lowercase hex")
     return ctype, cid, device_id, url_key, ts, target
+
+
+def usage(path):
+    st = os.statvfs(os.path.dirname(os.path.abspath(path)))
+    used = st.f_blocks - st.f_bfree
+    pct = {"disk": round(100 * used / (used + st.f_bavail)) if used + st.f_bavail else None, "memory": None, "swap": None}
+    try:
+        with open("/proc/meminfo") as f:
+            m = {k: int(v.split()[0]) for k, v in (line.split(":", 1) for line in f)}
+        pct["memory"] = round(100 * (m["MemTotal"] - m["MemAvailable"]) / m["MemTotal"])
+        pct["swap"] = round(100 * (m["SwapTotal"] - m["SwapFree"]) / m["SwapTotal"]) if m["SwapTotal"] else 0
+    except (OSError, KeyError, ValueError, ZeroDivisionError):
+        pass
+    return pct
+
+
+def over_limits(pct):
+    return [k for k, limit in LIMITS.items() if pct[k] is not None and pct[k] >= limit]
 
 
 class Store:
@@ -178,14 +207,29 @@ class Store:
             devices = self.conn.execute(
                 "SELECT COUNT(DISTINCT device_id) FROM changes WHERE type = 'visit'").fetchone()[0]
             last_seq = self._last_seq()
+            last_upload = self.conn.execute(
+                "SELECT received_at FROM changes WHERE device_id != ? ORDER BY seq DESC LIMIT 1", (ADMIN_DEVICE,)
+            ).fetchone()
+        pct = usage(self.path)
+        over = [f"{k.capitalize()} {pct[k]}%" for k in over_limits(pct)]
         return {
+            "version": VERSION,
             "visits": counts.get("visit", 0),
             "deletes": counts.get("delete", 0),
             "purges": counts.get("purge", 0),
             "devices": devices,
             "lastSeq": last_seq,
+            "lastUpload": last_upload[0] if last_upload else None,
+            "dbBytes": self.size(),
+            "diskPct": pct["disk"],
+            "memoryPct": pct["memory"],
+            "swapPct": pct["swap"],
+            "limits": "⚠ " + ", ".join(over) if over else "OK",
             "serverId": self.server_id,
         }
+
+    def size(self):
+        return sum(os.path.getsize(p) for p in (self.path, self.path + "-wal") if os.path.exists(p))
 
     def devices(self):
         with self.lock:
@@ -239,8 +283,9 @@ class Store:
             return self.conn.execute("PRAGMA integrity_check").fetchone()[0]
 
 
-def make_handler(store, token, quiet=False):
+def make_handler(store, token, status_token="", quiet=False):
     token_bytes = token.encode()
+    status_bytes = status_token.encode()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"HeliumHomeSync/{VERSION}"
@@ -271,10 +316,12 @@ def make_handler(store, token, quiet=False):
         def _error(self, status, message):
             self._send(status, {"error": message})
 
-        def _authorized(self):
+        def _authorized(self, status_ok=False):
             header = self.headers.get("Authorization", "")
             given = header[7:].encode() if header.startswith("Bearer ") else b""
             if hmac.compare_digest(given, token_bytes):
+                return True
+            if status_ok and status_bytes and hmac.compare_digest(given, status_bytes):
                 return True
             self._error(401, "invalid or missing token")
             return False
@@ -299,7 +346,7 @@ def make_handler(store, token, quiet=False):
                     return self._error(400, "since must be >= 0 and limit >= 1")
                 return self._send(200, store.fetch(since, min(limit, MAX_LIMIT)))
             if parts.path == "/api/stats":
-                if not self._authorized():
+                if not self._authorized(status_ok=True):
                     return
                 return self._send(200, store.stats())
             self._error(404, "not found")
@@ -343,10 +390,14 @@ def main():
         sys.exit("SYNC_TOKEN is not set. Generate one with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'")
     if len(token) < 16:
         print("warning: SYNC_TOKEN is shorter than 16 characters", file=sys.stderr)
+    status_token = os.environ.get("STATUS_TOKEN", "")
+    if status_token and len(status_token) < 16:
+        print("warning: STATUS_TOKEN is shorter than 16 characters", file=sys.stderr)
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8787"))
     store = Store(DB_PATH)
-    httpd = ThreadingHTTPServer((host, port), make_handler(store, token, quiet=os.environ.get("QUIET") == "1"))
+    handler = make_handler(store, token, status_token, quiet=os.environ.get("QUIET") == "1")
+    httpd = ThreadingHTTPServer((host, port), handler)
     print(f"Helium Home Sync server {VERSION} on http://{host}:{port} (db: {DB_PATH})", file=sys.stderr, flush=True)
     try:
         httpd.serve_forever()

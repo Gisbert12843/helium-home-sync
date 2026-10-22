@@ -1,0 +1,6 @@
+[Unit]
+Description=Helium Home Sync health check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/helium-home-sync monitor

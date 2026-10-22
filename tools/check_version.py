@@ -16,7 +16,8 @@ Usage: python3 tools/check_version.py <command>
 
   set X.Y.Z        Write version X.Y.Z into both files (before a release)
   check            Check that both files have the same version, and print it (CI)
-  check vX.Y.Z     Also check that the version matches a release tag (release workflow)
+  check vX.Y.Z     Also check that the version matches a release tag (release workflow).
+                   A suffix like vX.Y.Z-beta.1 marks a test release (pre-release) of X.Y.Z.
   help             Show this text"""
 
 
@@ -54,6 +55,8 @@ with open(MANIFEST) as f:
 
 if server != manifest:
     sys.exit(f"Version mismatch: server/server.py has {server}, extension/manifest.json has {manifest}")
-if args and args[0].removeprefix("v") != server:
-    sys.exit(f"Tag {args[0]} does not match version {server}")
+if args:
+    base, _, pre = args[0].removeprefix("v").partition("-")
+    if base != server or (pre and not re.fullmatch(r"[0-9A-Za-z]+(\.[0-9A-Za-z]+)*", pre)):
+        sys.exit(f"Tag {args[0]} does not match version {server} (use v{server} or e.g. v{server}-beta.1)")
 print(server)

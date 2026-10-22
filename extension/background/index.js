@@ -5,7 +5,7 @@ import { isSuppressed, isAllSuppressed, pruneSuppress } from "../lib/suppress.js
 import { SyncApi } from "../lib/api.js";
 import { SECOND_MS, MINUTE_MS } from "../lib/time.js";
 import { scanRecent, indexExisting, queueIndexed, flushOutbox } from "./upload.js";
-import { pullAll } from "./download.js";
+import { pullAll, refreshAutofill } from "./download.js";
 import { handleVisitRemoved, deleteUrlEverywhere, applyPurge } from "./deletes.js";
 import { scheduleRecount, loadCounts, resumeRecount } from "./counts.js";
 
@@ -182,6 +182,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     await run("init", ensureInit);
     await updateBadge();
     await sync({ reason: reason || "installed", force: true });
+    await run("autofill", refreshAutofill);
     await run("index", async () => indexExisting(await ensureDevice()));
 });
 

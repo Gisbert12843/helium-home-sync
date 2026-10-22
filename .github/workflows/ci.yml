@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call: # the release workflow runs these checks first
 
 permissions:
   contents: read
@@ -25,7 +26,7 @@ jobs:
         run: python tools/check_version.py check
 
       - name: Shell scripts
-        run: shellcheck server/*.sh server/proxmox/*.sh
+        run: shellcheck server/*.sh server/proxmox/*.sh tools/*.sh
 
       - name: Extension JavaScript syntax
         run: |

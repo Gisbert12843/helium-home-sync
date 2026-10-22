@@ -1,5 +1,8 @@
 name: Release
 
+# A tag vX.Y.Z makes a release. A tag with a suffix, e.g. vX.Y.Z-beta.1, makes a test release:
+# a pre-release that is never marked "Latest", with notes from the "Unreleased" changelog section.
+
 on:
   push:
     tags: ["v*"]
@@ -8,7 +11,11 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -20,25 +27,52 @@ jobs:
         run: |
           mkdir dist
           cp -r extension dist/helium-home-sync-extension
+          if [[ $GITHUB_REF_NAME == *-* ]]; then
+            # The manifest version must be numbers only, so a test release shows its tag as version_name
+            python3 -c 'import json, sys; p = sys.argv[1]; m = json.load(open(p)); m["version_name"] = sys.argv[2]; json.dump(m, open(p, "w"), indent=2, ensure_ascii=False)' \
+              dist/helium-home-sync-extension/manifest.json "${GITHUB_REF_NAME#v}"
+          fi
           cd dist && zip -r "../helium-home-sync-extension-$GITHUB_REF_NAME.zip" helium-home-sync-extension
 
       - name: Release notes from CHANGELOG.md
         run: |
           version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            index($0, "## [" v "]") == 1 { found = 1; next }
-            found && /^## \[/ { exit }
+          section="## [$version]"
+          if [[ $GITHUB_REF_NAME == *-* ]]; then
+            section="## Unreleased"
+            cat > notes.md <<EOF
+          > **Test release (beta).** It is not ready for daily use yet. Back up your server first, and please report problems as issues.
+
+          **Try it**
+          - **Extension:** download the zip below and unpack it over your extension folder. Then click **Reload ↻** on the extension card in \`helium://extensions\`. The card shows version \`$version\`.
+          - **Server:** \`git checkout $GITHUB_REF_NAME\` in your copy of the repository. Then update as usual: \`tools/deploy.sh\`, \`./proxmox-lxc.sh update <ctid>\`, or \`./manage.sh update-backup && ./manage.sh update\` with Docker.
+          - **Way back:** install the previous release again. Each update makes a backup first, and \`helium-home-sync restore <file>\` brings it back.
+
+          **Changes since the last release**
+
+          EOF
+          fi
+          awk -v s="$section" '
+            index($0, s) == 1 { found = 1; next }
+            found && /^## / { exit }
             found && /^\[[^]]+\]: / { exit }
             found { print }
-          ' CHANGELOG.md > notes.md
-          if ! grep -q '[^[:space:]]' notes.md; then
-            echo "CHANGELOG.md has no section for $version" >&2
+          ' CHANGELOG.md > section.md
+          if ! grep -q '[^[:space:]]' section.md; then
+            echo "CHANGELOG.md has no entries under '$section'" >&2
             exit 1
           fi
+          cat section.md >> notes.md
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          flags=()
+          title="$GITHUB_REF_NAME"
+          if [[ $GITHUB_REF_NAME == *-* ]]; then
+            flags=(--prerelease)
+            title="$GITHUB_REF_NAME (test release)"
+          fi
           gh release create "$GITHUB_REF_NAME" "helium-home-sync-extension-$GITHUB_REF_NAME.zip" \
-            --title "$GITHUB_REF_NAME" --notes-file notes.md
+            --title "$title" --notes-file notes.md "${flags[@]}"

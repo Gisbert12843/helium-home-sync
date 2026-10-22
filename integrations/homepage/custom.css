@@ -1,0 +1,35 @@
+/* Helium Home Sync tile: accent bar, heavier values, quiet labels. Only this tile changes.
+   Change the accent color (r g b) in the first rule, and the icon color in services.yaml to match. */
+li.service[data-name="Helium Home Sync"] {
+  --hhs-accent: 56 189 248;
+}
+
+li.service[data-name="Helium Home Sync"] .service-card {
+  box-shadow: inset 3px 0 0 rgb(var(--hhs-accent));
+  background-image: linear-gradient(90deg, rgb(var(--hhs-accent) / 0.1), transparent 40%);
+}
+
+li.service[data-name="Helium Home Sync"] .service-block {
+  margin: 0.2rem;
+  padding: 0.45rem 0.25rem;
+  border-radius: 0.5rem;
+  background: rgb(var(--color-900) / 0.35);
+}
+
+.light li.service[data-name="Helium Home Sync"] .service-block {
+  background: rgb(var(--color-200) / 0.6);
+}
+
+li.service[data-name="Helium Home Sync"] .service-block-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+li.service[data-name="Helium Home Sync"] .service-block-label {
+  margin-top: 0.1rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+}

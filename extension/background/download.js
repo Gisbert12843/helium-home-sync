@@ -9,34 +9,63 @@ import { notifyChanged } from "./counts.js";
 
 const PULL_PAGE = 1000;
 const STAT_KEYS = ["visits", "deletes", "skipped", "imported"];
+const OMNIBOX_SCORED_VISITS = 10;
+const OMNIBOX_SIGNIFICANT_VISITS = 4;
+const TYPED_TRANSITIONS = ["typed", "keyword_generated"];
 
 async function loadTombstones() {
     const rows = await tx("tombstones", "readonly", (s) => promisify(s.tombstones.getAll()));
     return new Map(rows.map((r) => [r.url, r.deletedAt]));
 }
 
-async function importForAutofill(urls) {
-    const missing = [];
-    for (const url of urls) {
-        if (!(await chrome.history.getVisits({ url })).length) missing.push(url);
-    }
-    if (!missing.length) return 0;
-    await suppressUrls(missing);
-    const imported = [];
+const countsForAutofill = (visit, since) => visit.visitTime > since && visit.transition !== "reload";
+
+function autofillTarget(visits, since) {
+    const remote = visits.filter((v) => v.state === "remote" && countsForAutofill(v, since));
+    const floor = remote.some((v) => TYPED_TRANSITIONS.includes(v.transition)) ? OMNIBOX_SIGNIFICANT_VISITS : 0;
+    return Math.min(OMNIBOX_SCORED_VISITS, Math.max(remote.length, floor));
+}
+
+async function importForAutofill(urls, atLeast) {
     const now = Date.now();
-    for (const url of missing) {
-        await chrome.history.addUrl({ url });
-        const visits = await chrome.history.getVisits({ url });
-        for (const v of visits) imported.push({ visitId: v.visitId, url, at: now });
-    }
-    await tx("imported", "readwrite", (s) => {
-        for (const row of imported) s.imported.put(row);
+    const since = now - HISTORY_EXPIRY_MS;
+    const plan = await tx(["visits", "imported"], "readonly", async (s) => {
+        const out = [];
+        for (const url of urls) {
+            const [visits, imports] = await Promise.all([
+                promisify(s.visits.index("url").getAll(url)),
+                promisify(s.imported.index("url").getAll(url)),
+            ]);
+            const missing = Math.max(autofillTarget(visits, since) - imports.filter((i) => i.at > since).length, atLeast);
+            if (missing > 0) out.push({ url, missing });
+        }
+        return out;
     });
-    return missing.length;
+    for (const { url, missing } of plan) {
+        const known = new Set((await chrome.history.getVisits({ url })).map((v) => v.visitId));
+        await suppressUrls([url]);
+        for (let i = 0; i < missing; i++) await chrome.history.addUrl({ url });
+        const added = (await chrome.history.getVisits({ url })).filter((v) => !known.has(v.visitId));
+        await tx("imported", "readwrite", (s) => {
+            for (const v of added) s.imported.put({ visitId: v.visitId, url, at: now });
+        });
+    }
+    return plan.length;
+}
+
+export async function refreshAutofill() {
+    const since = Date.now() - HISTORY_EXPIRY_MS;
+    const urls = new Set();
+    await tx("visits", "readonly", (s) =>
+        iterate(s.visits.index("visitTime"), IDBKeyRange.lowerBound(since, true), "next", (cursor) => {
+            if (cursor.value.state === "remote") urls.add(cursor.value.url);
+        }),
+    );
+    return importForAutofill([...urls], 0);
 }
 
 async function applyPage(rows, device, settings) {
-    const now = Date.now();
+    const since = Date.now() - HISTORY_EXPIRY_MS;
     const tombstones = await loadTombstones();
     const devices = await getMeta("devices", {});
     const toImport = new Set();
@@ -48,8 +77,12 @@ async function applyPage(rows, device, settings) {
         if (!pending.length) return;
         const batch = pending;
         pending = [];
-        await tx("visits", "readwrite", (s) => {
-            for (const v of batch) s.visits.put(v);
+        await tx("visits", "readwrite", async (s) => {
+            const known = await Promise.all(batch.map((v) => promisify(s.visits.getKey(v.id))));
+            batch.forEach((v, i) => {
+                if (known[i] === undefined && countsForAutofill(v, since)) toImport.add(v.url);
+                s.visits.put(v);
+            });
         });
     };
 
@@ -88,7 +121,6 @@ async function applyPage(rows, device, settings) {
             }
             pending.push(remoteVisitRecord(c));
             stats.visits++;
-            if (c.visitTime > now - HISTORY_EXPIRY_MS) toImport.add(c.url);
         } else if (c.type === "delete") {
             await flush();
             if (await applyRemoteDelete(c, settings)) {
@@ -102,7 +134,7 @@ async function applyPage(rows, device, settings) {
     }
     await flush();
     await setMeta("devices", devices);
-    stats.imported = await importForAutofill([...toImport]);
+    stats.imported = await importForAutofill([...toImport], 1);
     return stats;
 }
 

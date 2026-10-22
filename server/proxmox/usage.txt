@@ -9,6 +9,7 @@ root, from a copy of the whole server/ folder:
   ./proxmox-lxc.sh default               Create a container with the default settings, no questions
   ./proxmox-lxc.sh advanced              Create a container, asking for every setting below
   ./proxmox-lxc.sh update [ctid]         Push the current server code into a container and restart it
+  ./proxmox-lxc.sh settings [ctid]       Turn backups, alerts, the dashboard token and limits on or off
   ./proxmox-lxc.sh tailscale [ctid]      Add Tailscale to an existing container (passes /dev/net/tun in)
   ./proxmox-lxc.sh rename [ctid] [name]  Change the container's hostname (and its Tailscale name)
   ./proxmox-lxc.sh port [ctid] [port]    Move the server to another port (devices need the new URL)
@@ -51,7 +52,10 @@ root, from a copy of the whole server/ folder:
   {{BOLD}}Maintenance{{CL}}
     AUTO_BACKUP=<yes|no>        daily database backup (default: yes)
     BACKUP_TIME=<HH:MM>         default: 03:30
-    BACKUP_KEEP=<n>             keep the newest n daily backups (default: 14)
+    BACKUP_KEEP=<n>             keep the newest n daily backups; older ones are deleted (default: 14)
+    MONITOR_URL=<url>           alerts: a Healthchecks.io ping URL for the 5-minute health check
+                                (default: none, no alerts)
+    DASHBOARD=<yes|no>          make a read-only status token for dashboards like Homepage (default: no)
     AUTO_UPDATES=<yes|no>       install Debian security updates automatically (default: yes)
     QUIET=<yes|no>              yes: don't log every sync request (default: no)
 
@@ -64,4 +68,5 @@ root, from a copy of the whole server/ folder:
 
 Example: CTID=150 IP=192.168.2.50/24 GW=192.168.2.1 TAILSCALE=yes ./proxmox-lxc.sh default
 
-Inside the container, manage.sh is installed as 'helium-home-sync' (status, devices, backup, ...).
+Inside the container, manage.sh is installed as 'helium-home-sync' (status, devices, backups, ...).
+How backups, alerts, limits and the status API work: {{DOCS}}
