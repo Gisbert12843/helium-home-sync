@@ -12,7 +12,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 # Bump only for wire format changes that older clients can't handle (see PROTOCOL.md).
 PROTOCOL_VERSION = 1
 HERE = os.path.dirname(os.path.abspath(__file__))

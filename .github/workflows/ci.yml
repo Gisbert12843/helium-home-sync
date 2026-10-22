@@ -22,7 +22,7 @@ jobs:
         run: python -m py_compile server/*.py tools/*.py
 
       - name: Versions match
-        run: python tools/check_version.py
+        run: python tools/check_version.py check
 
       - name: Shell scripts
         run: shellcheck server/*.sh server/proxmox/*.sh
