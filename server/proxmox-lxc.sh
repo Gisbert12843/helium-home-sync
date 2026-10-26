@@ -1064,7 +1064,7 @@ cmd_settings() {
       alerts "Alerts:         $alerts" \
       token "Status token:   $token (read-only, for dashboards)" \
       limits "Limits:         ${limits:-unknown}" \
-      done "Done") || break
+      "done" "Done") || break
     case $choice in
       backups) settings_backups "$ct" ;;
       alerts) settings_alerts "$ct" "$url" ;;
