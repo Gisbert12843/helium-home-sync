@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## Unreleased
 
+## [1.1.0] - 2026-10-26
+
 - Fixed: synced pages dropped out of the address-bar suggestions 3 days after the sync. Each synced visit now adds a visit to Helium's history, and pages typed on another device stay in the suggestions. The update adds the missing visits for the last 90 days once.
 - Added: daily backups with automatic cleanup (`helium-home-sync backups on|off`). They keep the newest 14. Backups made before an update keep the newest 3. `update` asks once if a container never chose. See OPERATIONS.md.
 - Added: an optional health check with alerts (`helium-home-sync monitor on <ping URL>`). Every 5 minutes it checks the service, disk, memory, swap and the age of the newest backup, and reports to Healthchecks.io.
@@ -22,4 +24,5 @@ First public release.
 - Sync protocol version check: the extension shows a clear "update the server/extension" error when the two don't match.
 - The extension is published as a zip on every GitHub Release.
 
+[1.1.0]: https://github.com/Gisbert12843/helium-home-sync/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Gisbert12843/helium-home-sync/releases/tag/v1.0.0
