@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Fixed: synced pages dropped out of the address-bar suggestions 3 days after the sync. Each synced visit now adds a visit to Helium's history, and pages typed on another device stay in the suggestions. The update adds the missing visits for the last 90 days once.
+- Added: daily backups with automatic cleanup (`helium-home-sync backups on|off`). They keep the newest 14. Backups made before an update keep the newest 3. `update` asks once if a container never chose. See OPERATIONS.md.
+- Added: an optional health check with alerts (`helium-home-sync monitor on <ping URL>`). Every 5 minutes it checks the service, disk, memory, swap and the age of the newest backup, and reports to Healthchecks.io.
+- Added: limits for disk, memory and swap (`helium-home-sync limits`, or `LIMIT_DISK`, `LIMIT_MEMORY`, `LIMIT_SWAP` in the env file).
+- Added: `./proxmox-lxc.sh settings <ctid>` turns backups, alerts, the dashboard token and the limits on or off in a menu. The advanced install asks for alerts and the dashboard token.
+- Added: an optional status token (`helium-home-sync status-token [new|off]`) that can only read `/api/stats`. Dashboards no longer need the sync token. `/api/stats` now also returns the version, the last upload, the database size, the disk, memory and swap usage, and `limits`. OPERATIONS.md documents every field.
+- Added: a [Homepage](https://gethomepage.dev) dashboard tile in `integrations/homepage/`.
+- Added: `tools/deploy.sh` deploys the server from a git checkout to a Proxmox LXC install. It runs the checks first, shows what changes, asks, and verifies the new version.
+
 ## [1.0.0] - 2026-10-10
 
 First public release.

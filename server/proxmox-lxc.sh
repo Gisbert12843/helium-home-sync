@@ -145,6 +145,10 @@ declare -A RULE=(
   [SYNC_TOKEN]='^([A-Za-z0-9_.~+/=-]{16,})?$'
   [BACKUP_TIME]='^([01][0-9]|2[0-3]):[0-5][0-9]$'
   [BACKUP_KEEP]='^[1-9][0-9]{0,3}$'
+  [MONITOR_URL]='^(https?://[^[:space:]|&\\]+)?$'
+  [LIMIT_DISK]='^([1-9][0-9]?|100)$'
+  [LIMIT_MEMORY]='^([1-9][0-9]?|100)$'
+  [LIMIT_SWAP]='^([1-9][0-9]?|100)$'
 )
 declare -A HINT=(
   [CTID]="a number from 100 to 999999999"
@@ -163,6 +167,10 @@ declare -A HINT=(
   [SYNC_TOKEN]="at least 16 characters of A-Z a-z 0-9 _ . ~ + / = -"
   [BACKUP_TIME]="a time like 03:30 (HH:MM, 24 hours)"
   [BACKUP_KEEP]="a number from 1 to 9999"
+  [MONITOR_URL]="a URL like https://hc-ping.com/<uuid>, or empty"
+  [LIMIT_DISK]="a percentage from 1 to 100"
+  [LIMIT_MEMORY]="a percentage from 1 to 100"
+  [LIMIT_SWAP]="a percentage from 1 to 100"
 )
 
 # ask_input VAR TITLE TEXT: input box, repeated until the answer follows RULE[VAR]
@@ -292,6 +300,20 @@ TUN_HELP="The Proxmox host has no usable /dev/net/tun, which Tailscale needs. Lo
   modprobe tun && echo tun >/etc/modules-load.d/tun.conf
 then run this again."
 
+DOCS=https://github.com/Gisbert12843/helium-home-sync/blob/main/OPERATIONS.md
+ALERTS_HELP="Alerts are optional. Every 5 minutes a health check tests the server, its disk, memory
+and swap, and the daily backups. It reports to Healthchecks.io (free). When a check fails,
+or the reports stop because the host is down, Healthchecks.io emails or messages you.
+
+1. Sign up at https://healthchecks.io and click 'Add Check'.
+2. Set the period to 5 minutes and the grace time to 30 minutes.
+3. Copy the check's ping URL, e.g. https://hc-ping.com/<uuid>.
+
+Paste it in the next box. Leave the box empty for no alerts."
+DASHBOARD_HELP="Make a read-only status token for dashboards such as Homepage or Homarr?
+
+It can only read usage and counts from /api/stats, never your history."
+
 host_tun_ok() {
   [[ -c /dev/net/tun ]] || modprobe tun 2>/dev/null || true
   [[ -c /dev/net/tun && $(stat -c '%t:%T' /dev/net/tun) == a:c8 ]]
@@ -328,6 +350,17 @@ ct_port() {
 }
 
 ct_running() { [[ $(pct status "$1" 2>/dev/null) == *running* ]]; }
+
+# ct_env CT KEY: a value from the container's /etc/helium-home-sync/env
+ct_env() { ct_exec "$1" sh -c "sed -n 's/^$2=//p' /etc/helium-home-sync/env | tail -n1" || true; }
+
+# ct_show CT TITLE CMD...: run a command in the container and show its output in a box
+ct_show() {
+  local ct=$1 title=$2 out
+  shift 2
+  out=$(ct_exec "$ct" "$@" 2>&1) || true
+  wt --title "$title" --msgbox "$out" 20 78 || true
+}
 
 wait_healthy() {
   local i
@@ -482,13 +515,15 @@ load_settings() {
   AUTO_BACKUP=${AUTO_BACKUP:-yes}
   BACKUP_TIME=${BACKUP_TIME:-03:30}
   BACKUP_KEEP=${BACKUP_KEEP:-14}
+  MONITOR_URL=${MONITOR_URL:-}
+  DASHBOARD=${DASHBOARD:-no}
   AUTO_UPDATES=${AUTO_UPDATES:-yes}
   QUIET=${QUIET:-no}
   TAILSCALE=${TAILSCALE:-no}
   TS_AUTHKEY=${TS_AUTHKEY:-}
   TS_HTTPS=${TS_HTTPS:-no}
   local v
-  for v in ONBOOT PROTECTION AUTO_BACKUP AUTO_UPDATES QUIET TAILSCALE TS_HTTPS; do norm_bool "$v"; done
+  for v in ONBOOT PROTECTION AUTO_BACKUP DASHBOARD AUTO_UPDATES QUIET TAILSCALE TS_HTTPS; do norm_bool "$v"; done
 }
 
 # choose_storages ALWAYS_ASK: fill STORAGE and TEMPLATE_STORAGE; ask when there is a choice
@@ -615,8 +650,11 @@ advanced_settings() {
     ask_yesno AUTO_BACKUP "BACKUPS" "Back up the database every day?"
     if [[ $AUTO_BACKUP == yes ]]; then
       ask_input BACKUP_TIME "BACKUP TIME" "Time of the daily backup (HH:MM)"
-      ask_input BACKUP_KEEP "BACKUPS TO KEEP" "How many daily backups to keep"
+      ask_input BACKUP_KEEP "BACKUPS TO KEEP" "How many daily backups to keep. Older ones are deleted."
     fi
+    wt --title "ALERTS (OPTIONAL)" --msgbox "$ALERTS_HELP" 16 78 || true
+    ask_input MONITOR_URL "ALERTS (OPTIONAL)" "Paste your Healthchecks.io ping URL (empty: no alerts)"
+    ask_yesno DASHBOARD "DASHBOARD TOKEN (OPTIONAL)" "$DASHBOARD_HELP"
     ask_yesno AUTO_UPDATES "SECURITY UPDATES" "Install Debian security updates automatically?"
     ask_yesno QUIET "QUIET LOG" "Quiet log: don't log every sync request?"
 
@@ -661,7 +699,7 @@ show_settings() {
     ts="yes, ${TS_AUTHKEY:+auth key}${TS_AUTHKEY:-login link}"
     [[ $TS_HTTPS == no ]] || ts+=", HTTPS via tailscale serve"
   fi
-  [[ $AUTO_BACKUP == no ]] || backups="daily at $BACKUP_TIME, keep $BACKUP_KEEP"
+  [[ $AUTO_BACKUP == no ]] || backups="daily at $BACKUP_TIME, keep the newest $BACKUP_KEEP"
   row 🆔 "Container ID" "$CTID"
   row 🏠 "Hostname" "$CT_HOSTNAME"
   row 📦 "Container type" "$CT_TYPE"
@@ -677,6 +715,8 @@ show_settings() {
   row 🔑 "Root login" "password ${PASSWORD:+set}${PASSWORD:-none}, SSH keys ${SSH_KEYS:-none}"
   row 🔗 "Tailscale" "$ts"
   row 🗄️ "Backups" "$backups"
+  row 🚨 "Alerts" "$([[ -z $MONITOR_URL ]] && echo off || echo "health check every 5 min, reports to $(cut -d/ -f3 <<<"$MONITOR_URL")")"
+  row 📊 "Dashboard token" "$([[ $DASHBOARD == yes ]] && echo "yes (read-only)" || echo no)"
   row 🔄 "Security updates" "$([[ $AUTO_UPDATES == yes ]] && echo automatic || echo manual)"
   row ⚙️ "Options" "start with host $ONBOOT, protected $PROTECTION, quiet log $QUIET, verbose $VERBOSE"
   row 🏷️ "Tags" "${TAGS:-none}"
@@ -757,7 +797,7 @@ create_container() {
 
   msg_info "Installing $APP"
   {
-    printf 'SYNC_TOKEN=%s\nPORT=%s\nBACKUP_KEEP=%s\n' "$SYNC_TOKEN" "$PORT" "$BACKUP_KEEP"
+    printf 'SYNC_TOKEN=%s\nPORT=%s\n' "$SYNC_TOKEN" "$PORT"
     [[ $QUIET == no ]] || echo QUIET=1
   } >"$TMP/server.env"
   pct push "$ct" "$TMP/server.env" "$STAGE/server.env" --perms 0600
@@ -767,8 +807,20 @@ create_container() {
 
   if [[ $AUTO_BACKUP == yes ]]; then
     msg_info "Scheduling a daily backup at $BACKUP_TIME"
-    run ct_install "$ct" backup-timer "$BACKUP_TIME"
-    msg_ok "Scheduled a daily backup at $BACKUP_TIME, keeping $BACKUP_KEEP"
+    run ct_exec "$ct" helium-home-sync backups on "$BACKUP_TIME" "$BACKUP_KEEP"
+    msg_ok "Scheduled a daily backup at $BACKUP_TIME, keeping the newest $BACKUP_KEEP"
+  else
+    run ct_exec "$ct" helium-home-sync backups off
+  fi
+  if [[ -n $MONITOR_URL ]]; then
+    msg_info "Turning on alerts"
+    run ct_exec "$ct" helium-home-sync monitor on "$MONITOR_URL"
+    msg_ok "Turned on alerts: the health check reports to $(cut -d/ -f3 <<<"$MONITOR_URL") every 5 minutes"
+  fi
+  if [[ $DASHBOARD == yes ]]; then
+    msg_info "Making a status token for dashboards"
+    run ct_exec "$ct" sh -c 'echo yes | helium-home-sync status-token'
+    msg_ok "Made a status token for dashboards (show it: pct exec $ct -- helium-home-sync status-token)"
   fi
   [[ $TAILSCALE == no ]] || setup_tailscale "$ct" "$PORT" || true
   if [[ $PROTECTION == yes ]]; then
@@ -785,6 +837,8 @@ create_container() {
   printf '%s%sManage it from the Proxmox host:%s pct exec %s -- helium-home-sync [command]\n' "$INFO" "$YW" "$CL" "$ct"
   printf '%s%sOr inside the container:%s         pct enter %s, then: helium-home-sync\n' "$INFO" "$YW" "$CL" "$ct"
   printf '%s%sUpdate the code later:%s           %s/proxmox-lxc.sh update %s\n' "$INFO" "$YW" "$CL" "$HERE" "$ct"
+  printf '%s%sBackups, alerts, dashboards:%s      %s/proxmox-lxc.sh settings %s\n' "$INFO" "$YW" "$CL" "$HERE" "$ct"
+  printf '%s%sHow they work:%s                    %s\n' "$INFO" "$YW" "$CL" "$DOCS"
   [[ $TAILSCALE == yes ]] ||
     printf '%s%sAdd Tailscale later:%s             %s/proxmox-lxc.sh tailscale %s\n' "$INFO" "$YW" "$CL" "$HERE" "$ct"
 }
@@ -854,17 +908,37 @@ cmd_update() {
   ct_running "$ct" || die "Container $ct is not running (pct start $ct)."
   ct_exec "$ct" test -f /etc/helium-home-sync/env || die "Container $ct has no $APP install."
 
-  msg_info "Backing up the database"
-  if run ct_exec "$ct" helium-home-sync backup; then msg_ok "Backed up the database"
-  else msg_warn "The backup failed; updating anyway."; fi
   msg_info "Copying the server files into container $ct"
   push_bundle "$ct"
   msg_ok "Copied the server files into container $ct"
+  msg_info "Backing up the database"
+  if run ct_exec "$ct" bash "$STAGE/manage.sh" update-backup; then msg_ok "Backed up the database (the newest 3 update backups are kept)"
+  else msg_warn "The backup failed; updating anyway."; fi
   msg_info "Updating $APP"
   run ct_install "$ct" code
   wait_healthy "$ct" "$(ct_port "$ct")" || die "The server is not answering. Check: pct exec $ct -- helium-home-sync logs"
   msg_ok "Updated $APP, and it is running"
   drop_bundle "$ct"
+  ask_backups "$ct"
+  printf '%s%sBackups, alerts, dashboards:%s ./proxmox-lxc.sh settings %s\n' "$INFO" "$YW" "$CL" "$ct"
+}
+
+# ask_backups CT: the daily backup is the user's choice; ask once if the container never made it
+ask_backups() {
+  local choice=yes
+  [[ -z $(ct_env "$1" AUTO_BACKUP) ]] || return 0
+  if [[ $INTERACTIVE == no ]]; then
+    msg_warn "Container $1 has no daily backup. Turn it on: ./proxmox-lxc.sh settings $1"
+    return
+  fi
+  ask_yesno choice "DAILY BACKUPS" "Container $1 has no daily backup yet.\n\nBack up the database every day at 03:30 and keep the newest 14?\nYou can change this any time: ./proxmox-lxc.sh settings $1"
+  if [[ $choice == yes ]]; then
+    run ct_exec "$1" helium-home-sync backups on
+    msg_ok "Turned on the daily backup at 03:30, keeping the newest 14"
+  else
+    run ct_exec "$1" helium-home-sync backups off
+    msg_ok "Daily backups stay off (turn on later: ./proxmox-lxc.sh settings $1)"
+  fi
 }
 
 cmd_tailscale() {
@@ -960,6 +1034,103 @@ cmd_port() {
   ct_exec "$ct" helium-home-sync set-port "$PORT"
 }
 
+# settings CT: turn the optional features of a container on or off in a menu
+cmd_settings() {
+  local ct choice backups alerts token limits url
+  check_host
+  target_container ct settings "${1:-}"
+  ct_running "$ct" || die "Container $ct is not running (pct start $ct)."
+  ct_exec "$ct" test -f /etc/helium-home-sync/env || die "Container $ct has no $APP install."
+  [[ $(ct_exec "$ct" helium-home-sync help 2>/dev/null) == *"backups on"* ]] ||
+    die "Container $ct has an older version without these settings. Update it first: $HERE/proxmox-lxc.sh update $ct"
+  if [[ $INTERACTIVE == no ]]; then
+    ct_exec "$ct" helium-home-sync status
+    printf '\nChange them with: pct exec %s -- helium-home-sync backups|monitor|status-token|limits ...\n' "$ct"
+    return
+  fi
+  while :; do
+    backups=off
+    [[ $(ct_env "$ct" AUTO_BACKUP) != yes ]] ||
+      backups="on, daily at $(ct_env "$ct" BACKUP_TIME), keep the newest $(ct_env "$ct" BACKUP_KEEP)"
+    url=$(ct_env "$ct" MONITOR_URL)
+    alerts=off
+    [[ -z $url ]] || alerts="on, reports to $(cut -d/ -f3 <<<"$url")"
+    token=off
+    [[ -z $(ct_env "$ct" STATUS_TOKEN) ]] || token=on
+    limits=$(ct_exec "$ct" helium-home-sync limits 2>/dev/null | sed -n 's/^Limits: \(.*\)\.$/\1/p' || true)
+    choice=$(wt --title "SETTINGS OF CONTAINER $ct" --menu \
+      "Optional features. Each one can be turned on or off at any time.\nHow they work: $DOCS" 17 78 5 \
+      backups "Daily backups:  $backups" \
+      alerts "Alerts:         $alerts" \
+      token "Status token:   $token (read-only, for dashboards)" \
+      limits "Limits:         ${limits:-unknown}" \
+      "done" "Done") || break
+    case $choice in
+      backups) settings_backups "$ct" ;;
+      alerts) settings_alerts "$ct" "$url" ;;
+      token) settings_token "$ct" "$token" ;;
+      limits) settings_limits "$ct" "$limits" ;;
+      *) break ;;
+    esac
+  done
+  clear
+}
+
+settings_backups() {
+  local on=no
+  [[ $(ct_env "$1" AUTO_BACKUP) != yes ]] || on=yes
+  ask_yesno on "DAILY BACKUPS" "Back up the database every day?\n\nOnly the newest backups are kept; older ones are deleted. 'No' keeps the existing backups."
+  if [[ $on == no ]]; then
+    ct_show "$1" "DAILY BACKUPS" helium-home-sync backups off
+    return
+  fi
+  BACKUP_TIME=$(ct_env "$1" BACKUP_TIME)
+  BACKUP_KEEP=$(ct_env "$1" BACKUP_KEEP)
+  BACKUP_TIME=${BACKUP_TIME:-03:30} BACKUP_KEEP=${BACKUP_KEEP:-14}
+  ask_input BACKUP_TIME "BACKUP TIME" "Time of the daily backup (HH:MM)"
+  ask_input BACKUP_KEEP "BACKUPS TO KEEP" "How many daily backups to keep. Older ones are deleted."
+  ct_show "$1" "DAILY BACKUPS" helium-home-sync backups on "$BACKUP_TIME" "$BACKUP_KEEP"
+}
+
+settings_alerts() {
+  MONITOR_URL=$2
+  wt --title "ALERTS" --msgbox "$ALERTS_HELP" 16 78 || true
+  ask_input MONITOR_URL "ALERTS" "Paste your Healthchecks.io ping URL (empty: alerts off)"
+  if [[ -n $MONITOR_URL ]]; then
+    ct_show "$1" "ALERTS" helium-home-sync monitor on "$MONITOR_URL"
+  elif [[ -n $2 ]]; then
+    ct_show "$1" "ALERTS" helium-home-sync monitor off
+  fi
+}
+
+settings_token() {
+  local choice verb
+  if [[ $2 == off ]]; then
+    wt --title "STATUS TOKEN" --yesno "$DASHBOARD_HELP\n\nThe server restarts for a moment." 12 78 || return 0
+    ct_show "$1" "STATUS TOKEN" sh -c 'echo yes | helium-home-sync status-token'
+    return
+  fi
+  choice=$(wt --title "STATUS TOKEN" --menu "The status token is on." 13 78 3 \
+    show "Show the token" \
+    new "Replace it (the old one stops working at once)" \
+    off "Remove it (dashboards that use it stop working)") || return 0
+  if [[ $choice != show ]]; then
+    verb=replace
+    [[ $choice == new ]] || verb=remove
+    wt --title "STATUS TOKEN" --defaultno --yesno "Really $verb the status token?\n\nDashboards that use the old token stop working until you give them a new one.\nThe server restarts for a moment." 12 78 || return 0
+  fi
+  ct_show "$1" "STATUS TOKEN" sh -c "echo yes | helium-home-sync status-token ${choice/show/}"
+}
+
+settings_limits() {
+  [[ $2 =~ disk\ ([0-9]+)%.*memory\ ([0-9]+)%.*swap\ ([0-9]+)% ]] || die "Couldn't read the limits of container $1."
+  LIMIT_DISK=${BASH_REMATCH[1]} LIMIT_MEMORY=${BASH_REMATCH[2]} LIMIT_SWAP=${BASH_REMATCH[3]}
+  ask_input LIMIT_DISK "LIMITS" "Report a problem when the disk is this full (%)"
+  ask_input LIMIT_MEMORY "LIMITS" "Report a problem when this much memory is used (%)"
+  ask_input LIMIT_SWAP "LIMITS" "Report a problem when this much swap is used (%)"
+  ct_show "$1" "LIMITS" helium-home-sync limits disk "$LIMIT_DISK" memory "$LIMIT_MEMORY" swap "$LIMIT_SWAP"
+}
+
 cmd_help() {
   local NEXTID ROOTDIR_STORAGES TEMPLATE_STORAGES BRIDGES TEMPLATES hint="? (run this as root on the Proxmox host to list them)"
   NEXTID=$(pvesh get /cluster/nextid 2>/dev/null || true)
@@ -982,6 +1153,7 @@ case ${1:-} in
   tailscale) cmd_tailscale "${2:-}" ;;
   rename) cmd_rename "${2:-}" "${3:-}" ;;
   port) cmd_port "${2:-}" "${3:-}" ;;
+  settings) cmd_settings "${2:-}" ;;
   '' | default | advanced) cmd_create "${1:-menu}" ;;
-  *) die "Unknown command '$1'. Use one of: default, advanced, update, tailscale, rename, port, help" ;;
+  *) die "Unknown command '$1'. Use one of: default, advanced, update, settings, tailscale, rename, port, help" ;;
 esac

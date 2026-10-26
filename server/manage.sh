@@ -3,6 +3,10 @@ set -euo pipefail
 
 SERVICE=helium-home-sync
 LXC_ENV=/etc/helium-home-sync/env
+BACKUP_TIME_DEFAULT=03:30
+BACKUP_KEEP_DEFAULT=14
+UPDATE_BACKUPS_KEEP=3
+BACKUP_MAX_AGE_HOURS=48
 
 if [[ -t 1 ]]; then B=$'\e[1m'; D=$'\e[2m'; Y=$'\e[33m'; G=$'\e[32m'; R=$'\e[31m'; N=$'\e[0m'; else B= D= Y= G= R= N=; fi
 die() { echo "${R}$*${N}" >&2; exit 1; }
@@ -75,6 +79,7 @@ set_env_value() {
   if [[ -f $ENV_FILE ]] && grep -q "^$1=" "$ENV_FILE"; then
     sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
   else
+    [[ ! -s $ENV_FILE || -z $(tail -c1 "$ENV_FILE") ]] || echo >>"$ENV_FILE"
     echo "$1=$2" >>"$ENV_FILE"
   fi
   chmod 600 "$ENV_FILE"
@@ -120,7 +125,8 @@ admin() {
   local tty=()
   if [[ ${1:-} == -T ]]; then tty=(-T); shift; elif [[ ! -t 0 || ! -t 1 ]]; then tty=(-T); fi
   if [[ $MODE == lxc ]]; then
-    (cd "$DATA" && runuser -u "$SERVICE" -- env DB_PATH="$DB" MANAGE_CMD="$CMD" python3 "$APP/admin.py" "$@")
+    (cd "$DATA" && runuser -u "$SERVICE" -- env DB_PATH="$DB" MANAGE_CMD="$CMD" LIMIT_DISK="$(env_value LIMIT_DISK)" \
+      LIMIT_MEMORY="$(env_value LIMIT_MEMORY)" LIMIT_SWAP="$(env_value LIMIT_SWAP)" python3 "$APP/admin.py" "$@")
   elif running; then
     compose exec "${tty[@]}" "$SERVICE" python admin.py "$@"
   else
@@ -176,7 +182,40 @@ move_tailscale_serve() {
   fi
 }
 
+# Check service, disk, memory and swap. Report to MONITOR_URL (Healthchecks.io style) if it is set.
+monitor() {
+  local report ok=1 url
+  report=$(admin -T resources 2>&1) || ok=0
+  if ! running; then report+=$'\nService is not running.'; ok=0
+  elif ! healthy; then report+=$'\n'"Server does not answer on port $(port)."; ok=0; fi
+  if [[ $(env_value AUTO_BACKUP) == yes && -z $(find "$BACKUPS" -maxdepth 1 -name 'auto-*.db' \
+    -mmin -$((BACKUP_MAX_AGE_HOURS * 60)) 2>/dev/null) ]]; then
+    report+=$'\n'"No daily backup in the last $BACKUP_MAX_AGE_HOURS hours (see: $CMD backups)."; ok=0
+  fi
+  echo "$report"
+  url=$(env_value MONITOR_URL)
+  ((ok)) || url=${url:+$url/fail}
+  [[ -z $url ]] || curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "$report" "$url" || echo "${Y}Could not reach $url${N}" >&2
+  ((ok))
+}
+
 stamp() { date +%Y-%m-%d_%H%M%S; }
+
+new_token() { python3 -c 'import secrets; print(secrets.token_urlsafe(32))' 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -d '/+=\n'; }
+
+backup_keep() {
+  local k
+  k=$(env_value BACKUP_KEEP)
+  [[ $k =~ ^[1-9][0-9]*$ ]] && echo "$k" || echo "$BACKUP_KEEP_DEFAULT"
+}
+
+# rotate PREFIX KEEP: delete all but the newest KEEP backups named PREFIX-<timestamp>.db
+rotate() {
+  # shellcheck disable=SC2012 # only our own <prefix>-<timestamp>.db names
+  ls -1t "$BACKUPS/$1"-*.db 2>/dev/null | tail -n +$(($2 + 1)) | xargs -r rm -f --
+}
+
+restart_server() { if [[ $MODE == lxc ]]; then svc restart; else compose up -d; fi; }
 
 backup_to() {
   local file=$1
@@ -200,8 +239,9 @@ restore_from() {
 }
 
 ask() {
-  local reply
-  read -r -p "$1 Type '$2' to confirm: " reply
+  local reply=
+  printf "%s Type '%s' to confirm: " "$1" "$2" >&2
+  read -r reply || true
   [[ $reply == "$2" ]] || die "Cancelled."
 }
 
@@ -222,8 +262,15 @@ case $cmd in
     else
       echo "Server:    ${Y}stopped${N} ($CMD start)"
     fi
-    if [[ $MODE == lxc ]] && systemctl is-active -q "$SERVICE-backup.timer"; then
-      echo "Backups:   daily, next $(systemctl show -p NextElapseUSecRealtime --value "$SERVICE-backup.timer")"
+    if [[ $(env_value AUTO_BACKUP) == yes ]]; then
+      echo "Backups:   daily at $(env_value BACKUP_TIME), keeping the newest $(backup_keep)"
+    else
+      echo "Backups:   ${Y}off${N} (turn on: $CMD backups on)"
+    fi
+    if [[ -n $(env_value MONITOR_URL) ]]; then
+      echo "Alerts:    health check every 5 min, reports to $(env_value MONITOR_URL | cut -d/ -f3)"
+    else
+      echo "Alerts:    off (turn on: $CMD monitor on <ping URL>)"
     fi
     echo; admin stats || true
     echo; echo "Devices use one of these as Server URL:"; addresses
@@ -250,13 +297,53 @@ case $cmd in
     prepare; admin prune "$@" ;;
 
   backup) prepare; backup_to "${1:-$BACKUPS/helium-home-sync-$(stamp).db}" ;;
-  auto-backup)
-    prepare
-    keep=$(env_value BACKUP_KEEP)
-    [[ $keep =~ ^[1-9][0-9]*$ ]] || keep=14
-    backup_to "$BACKUPS/auto-$(stamp).db"
-    # shellcheck disable=SC2012 # only our own auto-<timestamp>.db names
-    ls -1t "$BACKUPS"/auto-*.db 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -f --
+  auto-backup) prepare; backup_to "$BACKUPS/auto-$(stamp).db"; rotate auto "$(backup_keep)" ;;
+  update-backup) prepare; backup_to "$BACKUPS/update-$(stamp).db"; rotate update "$UPDATE_BACKUPS_KEEP" ;;
+  backups)
+    case ${1:-} in
+      '')
+        if [[ $(env_value AUTO_BACKUP) == yes ]]; then
+          echo "Daily backups: ${G}on${N} at $(env_value BACKUP_TIME), keeping the newest $(backup_keep)."
+        else
+          echo "Daily backups: ${Y}off${N}. Turn them on with: $CMD backups on [HH:MM] [number to keep]"
+        fi
+        echo "Folder: $(readlink -f "$BACKUPS") ($(find "$BACKUPS" -maxdepth 1 -name '*.db' 2>/dev/null | wc -l) files)"
+        # shellcheck disable=SC2012 # only our own <kind>-<timestamp>.db names
+        ls -1t "$BACKUPS" 2>/dev/null | head -n 5 | sed 's/^/  /'
+        echo "Cleanup: daily backups (auto-*) keep the newest $(backup_keep), backups before an update (update-*)"
+        echo "the newest $UPDATE_BACKUPS_KEEP. Backups you make with '$CMD backup' and before a restore are never deleted."
+        ;;
+      on)
+        time=${2:-$(env_value BACKUP_TIME)}
+        time=${time:-$BACKUP_TIME_DEFAULT}
+        keep=${3:-$(backup_keep)}
+        [[ $time =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ && $keep =~ ^[1-9][0-9]{0,3}$ ]] ||
+          die "Usage: $CMD backups on [HH:MM] [number to keep]   e.g. $CMD backups on 03:30 14"
+        prepare
+        set_env_value AUTO_BACKUP yes
+        set_env_value BACKUP_TIME "$time"
+        set_env_value BACKUP_KEEP "$keep"
+        if [[ $MODE == lxc ]]; then
+          printf '[Unit]\nDescription=Daily %s database backup\n\n[Timer]\nOnCalendar=*-*-* %s:00\nRandomizedDelaySec=10min\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n' \
+            "$SERVICE" "$time" >"/etc/systemd/system/$SERVICE-backup.timer"
+          systemctl daemon-reload
+          systemctl enable -q --now "$SERVICE-backup.timer"
+        else
+          echo "Docker has no timer of its own. Add this line to your crontab (crontab -e):"
+          echo "  ${time#*:} ${time%:*} * * * cd $PWD && ./manage.sh auto-backup >/dev/null"
+        fi
+        echo "Daily backups on at $time, keeping the newest $keep. Turn them off with: $CMD backups off"
+        backup_to "$BACKUPS/auto-$(stamp).db"
+        rotate auto "$keep"
+        ;;
+      off)
+        [[ $MODE != lxc ]] || systemctl disable -q --now "$SERVICE-backup.timer" 2>/dev/null || true
+        set_env_value AUTO_BACKUP no
+        echo "Daily backups off. The existing backups stay in $(readlink -f "$BACKUPS")."
+        [[ $MODE == lxc ]] || echo "Remove the auto-backup line from your crontab too (crontab -e)."
+        ;;
+      *) die "Usage: $CMD backups [on [HH:MM] [number to keep] | off]" ;;
+    esac
     ;;
   restore)
     [[ $# -ge 1 && -f $1 ]] || die "Usage: $CMD restore <backup file>   (backups are in $BACKUPS)"
@@ -300,15 +387,84 @@ case $cmd in
     prepare
     echo "The current token stops working; every device needs the new one."
     ask "Make a new token?" "yes"
-    new=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))' 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -d '/+=\n')
+    new=$(new_token)
     set_env_value SYNC_TOKEN "$new"
-    if [[ $MODE == lxc ]]; then svc restart; else compose up -d; fi
+    restart_server
     echo "New token: ${B}$new${N}"
     echo "On each device: click the extension icon > Settings > Token > Save."
+    ;;
+  status-token)
+    prepare
+    old=$(env_value STATUS_TOKEN)
+    if [[ ${1:-} == off ]]; then
+      [[ -n $old ]] || { echo "There is no status token."; exit 0; }
+      echo "Tools that use the status token (e.g. a dashboard) stop working. The server restarts."
+      ask "Remove the status token?" "yes"
+      set_env_value STATUS_TOKEN ""
+      restart_server
+      echo "Status token removed. Make a new one any time with: $CMD status-token"
+    elif [[ -n $old && ${1:-} != new ]]; then
+      echo "$old"
+    else
+      [[ -n $old ]] && echo "The current status token stops working. Tools that use it (e.g. a dashboard) need the new one."
+      echo "The status token can only read GET /api/stats (counts, sizes, times). The server restarts."
+      ask "Make a new status token?" "yes"
+      new=$(new_token)
+      set_env_value STATUS_TOKEN "$new"
+      restart_server
+      echo "Status token: ${B}$new${N}"
+      echo "Use it as 'Authorization: Bearer <token>' for /api/stats. Replace it: $CMD status-token new. Remove it: $CMD status-token off"
+    fi
     ;;
 
   vacuum) prepare; admin vacuum ;;
   check) prepare; admin check ;;
+  monitor)
+    case ${1:-} in
+      '') prepare; monitor ;;
+      on)
+        [[ ${2:-} =~ ^https?://[^[:space:]|\&\\]+$ ]] || die "Usage: $CMD monitor on <ping URL>   e.g. https://hc-ping.com/<uuid>"
+        old=$(env_value MONITOR_URL)
+        set_env_value MONITOR_URL "$2"
+        if [[ $MODE == lxc ]]; then
+          systemctl enable -q --now "$SERVICE-monitor.timer"
+          echo "Alerts: ${old:-off} -> $2. The health check runs every 5 minutes."
+        else
+          echo "Alerts: ${old:-off} -> $2. Add this line to your crontab (crontab -e):"
+          echo "  */5 * * * * cd $PWD && ./manage.sh monitor >/dev/null"
+        fi
+        echo "Turn it off with: $CMD monitor off"
+        echo "First report:"
+        prepare
+        monitor || true
+        ;;
+      off)
+        old=$(env_value MONITOR_URL)
+        [[ $MODE != lxc ]] || systemctl disable -q --now "$SERVICE-monitor.timer" 2>/dev/null || true
+        set_env_value MONITOR_URL ""
+        echo "Alerts off (the URL was: ${old:-none}). Pause or delete the check on Healthchecks.io too, or it reports a failure."
+        [[ $MODE == lxc ]] || echo "Remove the monitor line from your crontab too (crontab -e)."
+        ;;
+      *) die "Usage: $CMD monitor [on <ping URL> | off]" ;;
+    esac
+    ;;
+  limits)
+    prepare
+    if (($# == 0)); then admin -T resources || true; exit 0; fi
+    while (($#)); do
+      [[ $1 =~ ^(disk|memory|swap)$ && ${2:-} =~ ^([1-9][0-9]?|100|default)$ ]] ||
+        die "Usage: $CMD limits [disk|memory|swap <1-100|default>] ...   e.g. $CMD limits disk 85"
+      key=LIMIT_${1^^}
+      old=$(env_value "$key")
+      new=$2
+      [[ $new != default ]] || new=
+      set_env_value "$key" "$new"
+      echo "$1 limit: ${old:-default}${old:+%} -> ${new:-default}${new:+%}"
+      shift 2
+    done
+    restart_server
+    admin -T resources || true
+    ;;
   wipe)
     prepare
     echo "${R}This deletes ALL history on the server.${N} Devices keep their own data; they notice the"

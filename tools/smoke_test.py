@@ -14,6 +14,7 @@ import urllib.request
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 TOKEN = "smoke-test-token-0123456789"
+STATUS_TOKEN = "smoke-status-token-0123456789"
 
 with open(os.path.join(ROOT, "server", "server.py")) as f:
     PROTOCOL = re.search(r"^PROTOCOL_VERSION = (\d+)$", f.read(), re.M).group(1)
@@ -75,11 +76,21 @@ def run(base):
     status, _, body = call(base, "GET", "/api/stats")
     check(status == 200 and body.get("visits") == 1, "stats count the visit")
 
+    status, _, body = call(base, "GET", "/api/stats", token=STATUS_TOKEN)
+    check(status == 200 and body.get("lastUpload") and body.get("dbBytes", 0) > 0, "the status token reads stats")
+    check(isinstance(body.get("diskPct"), int), "stats report disk usage")
+    check("Memory" in body.get("limits", ""), "LIMIT_MEMORY from the environment sets the memory limit")
+    status, _, _ = call(base, "GET", "/api/changes?since=0", token=STATUS_TOKEN)
+    check(status == 401, "the status token cannot download changes")
+    status, _, _ = call(base, "POST", "/api/changes", {"changes": [visit]}, token=STATUS_TOKEN)
+    check(status == 401, "the status token cannot upload changes")
+
 
 def main():
     port = free_port()
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "SYNC_TOKEN": TOKEN, "HOST": "127.0.0.1", "PORT": str(port),
+        env = {**os.environ, "SYNC_TOKEN": TOKEN, "STATUS_TOKEN": STATUS_TOKEN, "LIMIT_MEMORY": "1",
+               "HOST": "127.0.0.1", "PORT": str(port),
                "DB_PATH": os.path.join(tmp, "smoke.db"), "QUIET": "1"}
         server = subprocess.Popen([sys.executable, os.path.join(ROOT, "server", "server.py")], env=env)
         try:

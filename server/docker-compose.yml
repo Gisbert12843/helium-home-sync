@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     environment:
       SYNC_TOKEN: ${SYNC_TOKEN:?Set SYNC_TOKEN in server/.env}
+      STATUS_TOKEN: ${STATUS_TOKEN:-}
+      LIMIT_DISK: ${LIMIT_DISK:-}
+      LIMIT_MEMORY: ${LIMIT_MEMORY:-}
+      LIMIT_SWAP: ${LIMIT_SWAP:-}
     ports:
       - "${PORT:-8787}:8787"
     volumes:

@@ -1,0 +1,57 @@
+---
+# Helium Home Sync tiles for Homepage (https://gethomepage.dev). See README.md in this folder.
+# Paste the group into your services.yaml, or move the tiles into one of your groups.
+# Replace <server> with the address of your server. Homepage fetches from its own host.
+- Helium Home Sync:
+    - Helium Home Sync:
+        icon: "mdi-history-#38bdf8"
+        href: https://healthchecks.io/
+        description: Browser history sync
+        siteMonitor: http://<server>:8787/api/health
+        widgets:
+          # Row 1: usage of the server's container. Limits shows "OK", or e.g. "⚠ Disk 85%".
+          - type: customapi
+            url: http://<server>:8787/api/stats
+            refreshInterval: 60000
+            headers:
+              Authorization: "Bearer {{HOMEPAGE_VAR_HHS_STATUS_TOKEN}}"
+            mappings:
+              - field: diskPct
+                label: Disk
+                format: percent
+              - field: memoryPct
+                label: Memory
+                format: percent
+              - field: swapPct
+                label: Swap
+                format: percent
+              - field: limits
+                label: Limits
+          # Row 2: the sync itself
+          - type: customapi
+            url: http://<server>:8787/api/stats
+            refreshInterval: 60000
+            headers:
+              Authorization: "Bearer {{HOMEPAGE_VAR_HHS_STATUS_TOKEN}}"
+            mappings:
+              - field: dbBytes
+                label: Database
+                format: bytes
+              - field: visits
+                label: Visits
+                format: number
+              - field: devices
+                label: Devices
+                format: number
+              - field: lastUpload
+                label: Last sync
+                format: relativeDate
+    # Only with alerts (helium-home-sync monitor-url). Shows Up/Down of all checks in the key's project.
+    - Healthchecks:
+        icon: healthchecks.svg
+        href: https://healthchecks.io/
+        description: Alerts when a check fails or stops pinging
+        widget:
+          type: healthchecks
+          url: https://healthchecks.io
+          key: "{{HOMEPAGE_VAR_HC_KEY}}"

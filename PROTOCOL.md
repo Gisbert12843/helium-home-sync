@@ -4,14 +4,14 @@ The server is an append-only log of **changes**. Clients upload their own change
 
 ## HTTP API
 
-All endpoints except `/api/health` need `Authorization: Bearer <SYNC_TOKEN>`. CORS is open, because auth is by token.
+All endpoints except `/api/health` need `Authorization: Bearer <SYNC_TOKEN>`. CORS is open, because auth is by token. `GET /api/stats` also accepts the optional status token (`STATUS_TOKEN`). That token cannot read or write changes.
 
 | Request | Response |
 |---|---|
 | `GET /api/health` | `{ok: true, version, protocol}` |
 | `POST /api/changes` with `{changes: Change[]}` (max 500, body max 5 MB) | `{accepted, lastSeq}`. Re-sending a known `id` is ignored, so retries are safe. One invalid change rejects the whole batch (400). |
 | `GET /api/changes?since=<seq>&limit=<n>` (default 1000, max 5000) | `{changes: [{seq, deviceId, payload}], cursor, hasMore, lastSeq, serverId}` |
-| `GET /api/stats` | `{visits, deletes, purges, devices, lastSeq, serverId}` |
+| `GET /api/stats` | Counts, sizes and usage for monitoring. The fields are listed in [OPERATIONS.md](OPERATIONS.md#status-api). |
 
 `serverId` is random per database. A client that sees a different `serverId`, or a `lastSeq` below its cursor, knows the server was wiped, restored or replaced. It then re-reads the log from 0 and marks its own uploaded visits "not on the server" so the user can upload them again.
 
@@ -56,7 +56,8 @@ The server only reads the envelope fields above; everything else is stored as-is
 ## Client rules
 
 - **Uploads:** local visits are found by scanning Helium's history from a persisted watermark, not from in-memory events, so a stopped service worker loses nothing. Everything goes through a persistent outbox.
-- **Echo prevention:** remote URLs are written into native history with `history.addUrl` for autofill. Those visit ids are recorded and never uploaded. A 30-second `suppress` list covers the events that our own `addUrl` and `deleteUrl` calls fire.
+- **Address bar:** each new remote visit from the last 90 days adds one native visit with `history.addUrl`, up to 10 per URL. Above 10, each pull with new visits for a URL adds one visit. A URL typed on another device gets at least 4 native visits, so Chromium keeps it in the suggestions. Reloads do not count. An extension update adds the missing visits once.
+- **Echo prevention:** the visit ids from `history.addUrl` are recorded and never uploaded. A 30-second `suppress` list covers the events that our own `addUrl` and `deleteUrl` calls fire.
 - **Incoming deletes:**
   - **delete:** removes the URL from native history only if this device has no own visit after `deletedAt`.
   - **delete-all:** applied only if the user enabled "Accept".

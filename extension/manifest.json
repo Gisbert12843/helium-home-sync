@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Helium Home Sync",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Syncs browsing history between your devices through your own server.",
   "minimum_chrome_version": "120",
   "permissions": ["history", "storage", "alarms", "unlimitedStorage", "favicon"],

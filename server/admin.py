@@ -7,7 +7,7 @@ import sys
 import tempfile
 import time
 
-from server import DB_PATH, Store
+from server import DB_PATH, LIMITS, Store, over_limits, usage
 
 MANAGE = os.environ.get("MANAGE_CMD", "./manage.sh")
 
@@ -61,12 +61,13 @@ def confirm(question, assume_yes):
 def cmd_stats(args):
     st = store()
     s = st.stats()
-    print(f"Database:   {DB_PATH} ({db_size() / 1e6:.1f} MB)")
+    print(f"Database:   {DB_PATH} ({st.size() / 1e6:.1f} MB)")
     print(f"Server id:  {s['serverId']}")
     print(f"Visits:     {s['visits']}")
     print(f"Deletes:    {s['deletes']}   Device removals: {s['purges']}")
     print(f"Devices:    {s['devices']} with visits")
     print(f"Log head:   seq {s['lastSeq']}")
+    print(f"Usage:      disk {s['diskPct']}%, memory {s['memoryPct']}%, swap {s['swapPct']}% (limits: {s['limits']})")
 
 
 def cmd_devices(args):
@@ -136,21 +137,27 @@ def cmd_restore(args):
     Store(DB_PATH)
 
 
-def db_size():
-    return sum(os.path.getsize(p) for p in (DB_PATH, DB_PATH + "-wal") if os.path.exists(p))
-
-
 def cmd_vacuum(args):
     st = store()
-    before = db_size()
+    before = st.size()
     st.vacuum()
-    print(f"Database compacted: {before / 1e6:.1f} MB -> {db_size() / 1e6:.1f} MB")
+    print(f"Database compacted: {before / 1e6:.1f} MB -> {st.size() / 1e6:.1f} MB")
 
 
 def cmd_check(args):
     result = store().integrity()
     print(f"Integrity check: {result}")
     sys.exit(0 if result == "ok" else 1)
+
+
+def cmd_resources(args):
+    pct = usage(DB_PATH)
+    print(f"Disk {pct['disk']}%, memory {pct['memory']}%, swap {pct['swap']}%, database {store().size() / 1e6:.1f} MB.")
+    over = over_limits(pct)
+    for k in over:
+        print(f"{k.capitalize()} is {pct[k]}% (limit {LIMITS[k]}%).")
+    print(f"Limits: disk {LIMITS['disk']}%, memory {LIMITS['memory']}%, swap {LIMITS['swap']}%.")
+    sys.exit(1 if over else 0)
 
 
 def main():
@@ -176,6 +183,7 @@ def main():
     sp.set_defaults(fn=cmd_restore)
     sub.add_parser("vacuum").set_defaults(fn=cmd_vacuum)
     sub.add_parser("check").set_defaults(fn=cmd_check)
+    sub.add_parser("resources").set_defaults(fn=cmd_resources)
     args = p.parse_args()
     args.fn(args)
 

@@ -27,7 +27,7 @@ SYNC_TOKEN=dev-token-0123456789 DB_PATH=/tmp/hhs-dev.db python3 server/server.py
 
 - **No runtime dependencies and no build step.** Server: Python standard library only. Extension: plain ES modules that Helium loads directly.
 - **Wire format changes** (requests, responses, change payloads) must update [PROTOCOL.md](PROTOCOL.md). If old servers or extensions can't handle the change, also bump `PROTOCOL_VERSION` in both `server/server.py` and `extension/lib/api.js`.
-- **Version numbers** live in `server/server.py` (`VERSION`) and `extension/manifest.json`. Change both together; CI checks that they match.
+- **Version numbers** live in `server/server.py` (`VERSION`) and `extension/manifest.json`. Set both with one command: `python3 tools/check_version.py set x.y.z`. CI checks that they match.
 - **Changelog:** add a line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 - **Shell scripts** must pass `shellcheck`.
 - Match the style of the code around your change.
@@ -37,10 +37,19 @@ CI runs on every pull request: syntax checks for Python, JavaScript and shell, t
 ## Releases (maintainers)
 
 1. Move the `Unreleased` entries in `CHANGELOG.md` under a new `## [x.y.z] - YYYY-MM-DD` heading.
-2. Set the version in `server/server.py` and `extension/manifest.json`.
+2. Set the version: `python3 tools/check_version.py set x.y.z`.
 3. Merge to `main`, then `git tag vx.y.z && git push origin vx.y.z`.
 
-The release workflow then builds the extension zip and creates the GitHub Release with the changelog section as notes.
+The release workflow first runs the CI checks. Then it builds the extension zip and creates the GitHub Release with the changelog section as notes.
+
+### Test releases (beta)
+
+A tag with a suffix makes a test release from a feature branch. `main` does not change.
+
+1. Set the version of the coming release, e.g. `python3 tools/check_version.py set 1.1.0`, and keep the changes under `## Unreleased`.
+2. Push the branch, then `git tag v1.1.0-beta.1 && git push origin v1.1.0-beta.1`.
+
+The workflow marks it as a pre-release (never "Latest") and takes the notes from `## Unreleased`. The extension card shows `1.1.0-beta.1`. Never move a tag: for a fix, tag `v1.1.0-beta.2`.
 
 ## License
 
