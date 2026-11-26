@@ -6,6 +6,8 @@ import { MINUTE_MS, DAY_MS } from "../lib/time.js";
 import { notifyChanged } from "./counts.js";
 
 const UPLOAD_BATCH = 500;
+// Server limit is 5 MiB. JSON length counts UTF-16 units, so a non-ASCII title can use up to 3 bytes per unit.
+const POST_MAX_CHARS = 1024 * 1024;
 const OVERLAP_MS = 2 * MINUTE_MS;
 const INDEX_WINDOW_MS = 7 * DAY_MS;
 const SEARCH_MAX = 20_000;
@@ -104,6 +106,17 @@ export async function queueIndexed() {
     }
 }
 
+/** Splits changes into POST bodies below the server's size limit. A batch of 500 long URLs is too big for one. */
+function* bySize(changes) {
+    let chunk = [], size = 0;
+    for (const c of changes) {
+        const n = JSON.stringify(c).length;
+        if (chunk.length && size + n > POST_MAX_CHARS) yield chunk, chunk = [], size = 0;
+        chunk.push(c), size += n;
+    }
+    if (chunk.length) yield chunk;
+}
+
 export async function flushOutbox(settings) {
     if (!canSync(settings)) return 0;
     const api = new SyncApi(settings);
@@ -118,7 +131,9 @@ export async function flushOutbox(settings) {
     for (; ;) {
         const batch = await getAll("outbox", undefined, UPLOAD_BATCH);
         if (!batch.length) break;
-        await api.postChanges(batch.map(named));
+        // Drop changes the server rejects (queued by older versions), or one of them blocks the outbox forever
+        const valid = batch.filter((c) => c.url == null || isSyncableUrl(c.url)).map(named);
+        for (const chunk of bySize(valid)) await api.postChanges(chunk);
         await tx(["outbox", "visits"], "readwrite", async (s) => {
             for (const c of batch) {
                 s.outbox.delete(c.id);
@@ -127,7 +142,7 @@ export async function flushOutbox(settings) {
                 if (v && v.state === "queued") s.visits.put({ ...v, state: "uploaded" });
             }
         });
-        sent += batch.length;
+        sent += valid.length;
     }
     return sent;
 }

@@ -12,7 +12,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 # Bump only for wire format changes that older clients can't handle (see PROTOCOL.md).
 PROTOCOL_VERSION = 1
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +20,8 @@ DB_PATH = os.environ.get("DB_PATH", os.path.join(HERE, "data", "helium-home-sync
 ADMIN_DEVICE = "server-admin"
 MAX_BODY = 5 * 1024 * 1024
 MAX_CHANGES = 500
+# Same as Firefox's URL_LENGTH_MAX. Must match MAX_URL_LENGTH in extension/lib/changes.js.
+MAX_URL = 65536
 DEFAULT_LIMIT = 1000
 MAX_LIMIT = 5000
 # Percent of disk, memory and swap at which /api/stats and `manage.sh monitor` report a problem.
@@ -71,7 +73,7 @@ def validate_change(c):
         raise ValidationError("deviceName must be a string")
     target = None
     if ctype == "visit":
-        url = _str(c, "url", 8192)
+        url = _str(c, "url", MAX_URL)
         if not url.startswith(("http://", "https://")):
             raise ValidationError("url must be http(s)")
         url_key = _str(c, "urlKey", 128)
@@ -84,7 +86,7 @@ def validate_change(c):
         if (url is None) != (url_key is None):
             raise ValidationError("url and urlKey must both be set or both be null")
         if url is not None:
-            _str(c, "url", 8192)
+            _str(c, "url", MAX_URL)
             _str(c, "urlKey", 128)
         ts = _time(c, "deletedAt")
     elif ctype == "purge":

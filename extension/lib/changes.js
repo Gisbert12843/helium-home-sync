@@ -1,7 +1,10 @@
 export const ALL_URLS = "*";
+// Same as Firefox's URL_LENGTH_MAX. Must match MAX_URL in server/server.py.
+const MAX_URL_LENGTH = 65536;
 
+/** True for http(s) URLs the server accepts. Longer URLs stay local (Firefox Sync does the same). */
 export function isSyncableUrl(url) {
-    return typeof url === "string" && /^https?:\/\//i.test(url);
+    return typeof url === "string" && url.length <= MAX_URL_LENGTH && /^https?:\/\//i.test(url);
 }
 
 export async function urlKey(url) {
