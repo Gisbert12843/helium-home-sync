@@ -45,7 +45,7 @@ Chromium visit ids can be reused after deletions, so the visit time is part of t
 
 The server only reads the envelope fields above; everything else is stored as-is.
 
-- **Validation:** `id`, `deviceId` and the type's time field are required; times are positive ms epochs. A visit's `url` must be `http(s)://`, and `urlKey` is 16–128 lowercase hex characters. A delete has both `url` and `urlKey`, or neither.
+- **Validation:** `id`, `deviceId` and the type's time field are required; times are positive ms epochs. A visit's `url` must be `http(s)://` and at most 65536 characters (Firefox Sync uses the same limit). Clients do not upload longer URLs. `urlKey` is 16–128 lowercase hex characters. A delete has both `url` and `urlKey`, or neither.
 - **delete with a URL:** removes stored visits with that `urlKey` and `visitTime ≤ deletedAt`.
 - **delete-all:** removes all stored visits with `visitTime ≤ deletedAt`.
 - **purge:** removes stored visits of `targetDeviceId` with `visitTime ≤ before`. The target's other records up to `before` (deletes, rejoins) stay but are re-assigned to `server-admin`, so the device no longer counts as a device. Their payloads are unchanged.
